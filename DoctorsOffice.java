@@ -104,15 +104,10 @@ public class DoctorsOffice{
                     // set the global to show that this patient is at the desk
                     patientAtReceptionist = this;
 
-                     //wait then print the prompt
-                     Thread.sleep(1000);
-                     //System.out.println("Patient "+PatientID+" checks in with the receptionist [unecessary prompt]");
-
                 } catch(InterruptedException e) {
                     System.out.println("InterruptedException caught");
                 }
             }
-
 
             // Release Receptionist to check in someone else.
             produceReceptionistSem.release();
@@ -133,13 +128,10 @@ public class DoctorsOffice{
                     exitedList.add(this);
                     exited = true;
 
-//                    System.out.println("EXITED ARRAYLIST: "+ exitedList.size());
-
                 } catch(InterruptedException e) {
                     System.out.println("InterruptedException caught");
                 }
             }
-            //System.out.println("Patient "+PatientID+" gets there");
         }
     }
 
@@ -289,8 +281,8 @@ public class DoctorsOffice{
     public static void main(String args[])
     {
         //set number of patients and doctors
-        int p = 5;
-        int d = 3;
+        int p = Integer.parseInt(args[0]);
+        int d = Integer.parseInt(args[1]);
 
         System.out.println("Run with "+ p+ " patients, "+ d+" nurses, "+ d+" doctors");
         System.out.println("");
