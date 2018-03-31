@@ -28,8 +28,6 @@ public class DoctorsOffice{
 
     Receptionist RECEPTIONIST;
 
-    boolean officeClosed = false;
-
     // semCon initialized with 0 permits
     // to ensure put() executes first
     static Semaphore semCon = new Semaphore(0);
@@ -81,12 +79,12 @@ public class DoctorsOffice{
         Semaphore seenDoctorSem = new Semaphore(0);
         int doctorSeen;
 
+        // not a daemon thread, so program won't die when the first one exits.
         Patient(int i){
             PatientID = i;
             seenReceptionist = false;
             exited = false;
             Thread t = new Thread(this, "Doctor");
-            t.setDaemon(true);
             t.start();
         }
 
@@ -134,10 +132,7 @@ public class DoctorsOffice{
                     System.out.println("Patient "+PatientID+" leaves");
                     exitedList.add(this);
                     exited = true;
-                    if (exitedList.size()>=NUMPATIENTS){
-                        System.out.println("OFFICE IS NOW CLOSED!");
-                        officeClosed = true;
-                    }
+
 //                    System.out.println("EXITED ARRAYLIST: "+ exitedList.size());
 
                 } catch(InterruptedException e) {
@@ -160,6 +155,7 @@ public class DoctorsOffice{
         // Semaphore to note that doctor is/isnt busy
         Semaphore doctorSem = new Semaphore(1);
 
+        // daemon thread because it should die when patients are done funneling through
         Doctor(int i){
             this.DoctorID = i;
             nurse = new Nurse(DoctorID);
@@ -227,7 +223,7 @@ public class DoctorsOffice{
 
         @Override
         public void run() {
-            while(!officeClosed){
+            while(true){
                 try{
                     // grab somone from the waitroom
                     waitingRoomSem.acquire();
@@ -251,7 +247,6 @@ public class DoctorsOffice{
                     System.out.println("InterruptedException caught");
                 }
             }
-            System.out.println("Nurse "+NurseID+" gets there");
         }
     }
 
@@ -272,7 +267,7 @@ public class DoctorsOffice{
 
         @Override
         public void run() {
-            while(!officeClosed){
+            while(true){
                 try{
                     produceReceptionistSem.acquire();
 
@@ -285,7 +280,6 @@ public class DoctorsOffice{
                 }
                 consumeReceptionistSem.release();
             }
-            System.out.println("Receptionist gets there");
         }
     }
 
@@ -302,9 +296,7 @@ public class DoctorsOffice{
         System.out.println("");
 
         DoctorsOffice doctorsOffice = new DoctorsOffice(p, d);
-        while(!doctorsOffice.officeClosed){
-            //we are still running
-        }
+
     }
 }
 
