@@ -14,20 +14,23 @@ import java.util.concurrent.Semaphore;
 
 public class DoctorsOffice{
 
-    /*Shared data members*/
-    int TIMER = 1000; // milliseconds of pause between steps
+    int TIMER = 100; // milliseconds of pause between steps.
     int NUMPATIENTS; // number of patients in this simulation
     int NUMDOCTORS; // number of doctors in this simulation
     int NUMNURSES; // number of nurses in this simulation
-    List<Patient> enteredList = new ArrayList<>(); //pre receptionist list for patients
-    List<Patient> waitroomList = new ArrayList<>();//post receptionist, pre nurse list for patients
-    Receptionist RECEPTIONIST; //Single instance of the receptionist thread
+    int patientInOfficeID;
+    List<Patient> enteredList = new ArrayList<>();
+    List<Patient> waitroomList = new ArrayList<>();
+    List<Patient> exitedList   = new ArrayList<>();
+    Receptionist RECEPTIONIST;
 
     /*Shared semaphores*/
-    static Semaphore consumeReceptionistSem = new Semaphore(1); //start with one receptionist that is not busy
-    static Semaphore produceReceptionistSem = new Semaphore(0); //consume/produce toggle when the receptionist is busy
+    static Semaphore consumeReceptionistSem = new Semaphore(1); //start with one receptionist
+    static Semaphore produceReceptionistSem = new Semaphore(0);
     static Semaphore waitingRoomSem = new Semaphore(0); //waiting room semaphore
     static Semaphore enteredSem = new Semaphore(0); //entered building semaphore
+    static Semaphore doctorSem = new Semaphore(0); //consumer
+    static Semaphore nurseSem = new Semaphore(1); //producer
 
     // Doctors Office Constructor
     DoctorsOffice(int p, int d){
@@ -60,19 +63,19 @@ public class DoctorsOffice{
     class Patient implements Runnable{
 
         int PatientID;
-        int doctorSeen; //each patient sees only one doctor. Data member for ease of printing
-        boolean seenReceptionist; //move onto next portion of the run() method after seeing receptionist
-        boolean exited; //denote that this patient has exited
-        Semaphore seenReceptionistSem = new Semaphore(0); //keeps Patient from seeing Nurse before Receptionist
-        Semaphore seenDoctorSem = new Semaphore(0); //keeps Patient from seeing Doctor before Nurse
+        int doctorSeen;
+        boolean seenReceptionist;
+        boolean exited;
+        Semaphore seenReceptionistSem = new Semaphore(0);
+        Semaphore seenDoctorSem = new Semaphore(0);
 
-        /*Patient Constructor*/
+        // not a daemon thread, so program won't die when the first one exits.
         Patient(int i){
             PatientID = i;
             seenReceptionist = false;
             exited = false;
             Thread t = new Thread(this, "Doctor");
-            t.start(); // not a daemon thread, so program won't die when the first one exits.
+            t.start();
         }
 
         @Override
@@ -80,7 +83,6 @@ public class DoctorsOffice{
 
             System.out.println("Patient "+PatientID+" enters waiting room, waits for receptionist");
             enteredList.add(this); // add to entered but not checked in list for the Receptionist to grab from
-
             enteredSem.release(); // increment the number of entered but not checked in Patients
             while (!seenReceptionist){
                 try{
@@ -95,20 +97,23 @@ public class DoctorsOffice{
                 }
             }
 
-            produceReceptionistSem.release(); // Release Receptionist to check in someone else.
-            waitroomList.add(this); // Add Patient to the waitroom list
-            waitingRoomSem.release(); // increment the semaphore for the waiting room from which the nurse grabs people
+            // Release Receptionist to check in someone else.
+            produceReceptionistSem.release();
+            waitroomList.add(this);
+            waitingRoomSem.release();
 
-            while (!exited){ //until the patient has been seen by the doctor and exited the building
+
+            while (!exited){
                 try{
-                    seenDoctorSem.acquire(); //check to see if we've seen the doctor yet
-
+                    seenDoctorSem.acquire();
+                    // wait then print the prompt
                     Thread.sleep(TIMER);
                     System.out.println("Patient "+PatientID+" receives advice from doctor "+doctorSeen);
 
                     // allow the patient to leave
                     Thread.sleep(TIMER);
                     System.out.println("Patient "+PatientID+" leaves");
+                    exitedList.add(this);
                     exited = true;
 
                 } catch(InterruptedException e) {
@@ -127,12 +132,15 @@ public class DoctorsOffice{
         Nurse nurse;
         int i;
 
+        // Semaphore to note that doctor is/isnt busy
+        Semaphore doctorSem = new Semaphore(1);
+
         // daemon thread because it should die when patients are done funneling through
         Doctor(int i){
             this.DoctorID = i;
             nurse = new Nurse(DoctorID);
             Thread t = new Thread(this, "Doctor");
-            t.setDaemon(true); //daemon thread, dies when all Patients are through
+            t.setDaemon(true);
             t.start();
         }
 
@@ -141,8 +149,10 @@ public class DoctorsOffice{
             while(true){
                 try{
 
+                    // set doctor to busy
+                    doctorSem.acquire();
                     nurse.consumeExamRoom.acquire();
-//                    System.out.println("DOCTOR SEES PATIENT "+nurse.currentPatient.PatientID);
+
                     // wait then print the prompt
                     Thread.sleep(TIMER);
                     System.out.println("Doctor "+DoctorID+" listens to symptoms from patient "+nurse.currentPatient.PatientID);
@@ -150,6 +160,9 @@ public class DoctorsOffice{
                     // let patient know doctor number and that that s/he should be listening to advice from doctor
                     nurse.currentPatient.doctorSeen = DoctorID;
                     nurse.currentPatient.seenDoctorSem.release();
+
+                    // set as no longer busy
+                    doctorSem.release();
 
                     // set nurse to no longer busy
                     nurse.nurseSem.release();
@@ -171,9 +184,8 @@ public class DoctorsOffice{
     class Nurse implements Runnable{
         int NurseID;
 
-        Semaphore nurseSem = new Semaphore(1); /*Semaphore to note that nurse is/isnt busy*/
-
-        /*These 2 semaphores allow for producing and consuming of a 'ready exam room' with an unseen patient*/
+        /*Semaphore to note that nurse is/isnt busy*/
+        Semaphore nurseSem = new Semaphore(1);
         Semaphore produceExamRoom = new Semaphore(1);
         Semaphore consumeExamRoom = new Semaphore(0);
 
@@ -182,7 +194,7 @@ public class DoctorsOffice{
         Nurse(int i) {
             this.NurseID = i;
             Thread t = new Thread(this, "Nurse");
-            t.setDaemon(true); //daemon thread, dies when all Patients are through
+            t.setDaemon(true);
             t.start();
         }
 
@@ -190,24 +202,25 @@ public class DoctorsOffice{
         public void run() {
             while(true){
                 try{
-                    produceExamRoom.acquire(); //if we can produce an exam room, do it
+                    // grab somone from the waitroom
+                    waitingRoomSem.acquire();
+                    currentPatient = waitroomList.get(0);
+//                    System.out.println("REMOVED FROM WAITROOMLIST: "+currentPatient.PatientID);
+                    currentPatient.seenReceptionistSem.acquire();
+                    currentPatient = waitroomList.remove(0);
 
-                    waitingRoomSem.acquire(); //decrement the waitingRoom Sem upon grabbing someone
-                    currentPatient = waitroomList.get(0); // see who's next in line to be seen
+                    // double semaphore to make sure nurse places patient in waitroom before doctor treats
+                    produceExamRoom.acquire();
 
-                    try{
-                        currentPatient.seenReceptionistSem.acquire(); //make sure patient has seen the receptionist
-                        currentPatient = waitroomList.remove(0); // if they have, remove them from the waitroom
-                    }catch(InterruptedException e) {
-                        System.out.println("InterruptedException caught");
-                    }
+                    // set myself to busy
+                    nurseSem.acquire();
 
-                    nurseSem.acquire(); // set this nurse to busy
-
+                    // wait then print the prompt
                     Thread.sleep(TIMER);
                     System.out.println("Nurse "+NurseID+" takes patient "+currentPatient.PatientID+" to doctor's office");
 
-                    consumeExamRoom.release(); // okay doctor, you can now see the patient (consume the exam room)
+                    // okay doctor, you can now see the patient
+                    consumeExamRoom.release();
 
                 } catch(InterruptedException e) {
                     System.out.println("InterruptedException caught");
@@ -222,11 +235,13 @@ public class DoctorsOffice{
     // Receptionist class
     class Receptionist implements Runnable
     {
+        /*Semaphore to note that doctor is/isnt busy*/
+        Semaphore receptionistSem = new Semaphore(1);
         Patient currentPatient;
 
         Receptionist(){
             Thread t = new Thread(this, "Doctor");
-            t.setDaemon(true); //daemon thread, dies when all Patients are through
+            t.setDaemon(true);
             t.start();
         }
 
@@ -234,18 +249,18 @@ public class DoctorsOffice{
         public void run() {
             while(true){
                 try{
-                    produceReceptionistSem.acquire(); //set the receptionist to busy
+                    produceReceptionistSem.acquire();
                     enteredSem.acquire(); //decrement entered sem, since checking someone in
                     currentPatient = enteredList.remove(0); //grab the patient we are checking in
 
                     Thread.sleep(TIMER);
                     System.out.println("Receptionist registers patient "+ currentPatient.PatientID);
-                    currentPatient.seenReceptionist = true; //allow the Patient to progress past seenReceptionist loop
+                    currentPatient.seenReceptionist = true;
                     currentPatient.seenReceptionistSem.release(); //notify the nurse that this one has seen receptionist
                 } catch(InterruptedException e) {
                     System.out.println("InterruptedException caught");
                 }
-                consumeReceptionistSem.release(); // let Patient know that the receptionis is free
+                consumeReceptionistSem.release();
             }
         }
     }
@@ -253,21 +268,26 @@ public class DoctorsOffice{
     /**************************************************************************/
     /**************************************************************************/
 
+
+
     public static void main(String args[])
     {
         //set number of patients and doctors --NetBeans
-        //int p = 3;
-        //int d = 3;
+        int p = 30;
+        int d = 3;
 
         //set number of patients and doctors --Command line
-        int p = Integer.parseInt(args[0]);
-        int d = Integer.parseInt(args[1]);
+//        int p = Integer.parseInt(args[0]);
+//        int d = Integer.parseInt(args[1]);
 
         System.out.println("Run with "+ p+ " patients, "+ d+" nurses, "+ d+" doctors");
         System.out.println("");
 
-        // Start a new doctors office instance
         DoctorsOffice doctorsOffice = new DoctorsOffice(p, d);
 
     }
 }
+
+
+/******************************************************************************/
+/******************************************************************************/
